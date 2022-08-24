@@ -1,39 +1,41 @@
 const listeners = {
     template: (request, sender, sendResponse) => {
         console.debug(`an object is sent from tab ${sender.tab.id}:`, request);
+        return new Promise(resolve => setTimeout(() => resolve("")))
         return setTimeout(() => sendResponse("async callback is supported if listener returns true"), 100);
     },
-    loadContentScript: ({filename}, {tab}, sendResponse) => {
-        chrome.scripting.executeScript({
+    loadContentScript: ({filename}, {tab}) => {
+        return chrome.scripting.executeScript({
             target: {tabId: tab.id},
             files: [filename]
-        }, ([result]) => sendResponse(result));
-        return true;
+        });
     },
-    download: ({options}, _, cb) => {
-        return download(options).then(cb, cb);
-    },
-    downloadAll: ({optionsArr}, _, sendResponse) => {
-        sendResponse(Promise.allSettled(optionsArr.map(download)));
-        return true;
-    },
-    download1by1: async({optionsArr}, _, sendResponse) => {
+    download: ({options}) => download(options),
+    downloadAll: ({optionsArr}) => Promise.allSettled(optionsArr.map(download)),
+    download1by1: async({optionsArr}) => {
         const results = [];
         for(let i = 0; i < optionsArr.length; ++i) {
             try {
                 results.push(await download(optionsArr[i]));
             }
-            catch(downloadItemWithError) {
-                results.push(downloadItemWithError);
+            catch(err) {
+                results.push(err);
             }
         }
-        sendResponse(results);
+        return results;
     }
 };
-chrome.runtime.onMessage.addListener(function (request) {
-    if(listeners.hasOwnProperty(request.command))
-        return !!listeners[request.command].apply(null, arguments);
-    console.error("unknown command " + request.command);
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if(!listeners.hasOwnProperty(request.command))
+        console.error("unknown command " + request.command);
+
+    const result = listeners[request.command](request, sender);
+    if(typeof sendResponse !== "function") return;
+    if(result instanceof Promise) {
+        result.then(sendResponse);
+        return true;
+    }
+    else sendResponse(result);
 });
 
 
